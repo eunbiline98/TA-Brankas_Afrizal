@@ -9,8 +9,12 @@
 #define sensDoor 8    // door sensor
 
 int cntAlarm = 0;
+int cntAlert = 0;
 int acc = 0;
 int stDoor = 0;  // state Door
+
+unsigned long startMillisPublishDoorSensor;
+unsigned long currentMillisPublishDoorSensor;
 
 SoftwareSerial mySerial(3, 2);
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
@@ -26,6 +30,70 @@ byte progressBar[8] = {
   B11111,
 };
 
+void alarmStatus() {
+  // if (digitalRead (sensDoor) == 1 && millis() - doorOpenStartTime >= 10000) {
+  //   lcd.setCursor(0, 0);
+  //   lcd.print("Tutup Pintu       ");
+  //   lcd.setCursor(0, 1);
+  //   lcd.print("Brankas.....!!    ");
+  //   digitalWrite(buzz, HIGH);
+  //   lcd.backlight();
+  //   delay(500);
+  //   digitalWrite(buzz, LOW);
+  //   lcd.noBacklight();
+  //   delay(500);
+  // }
+  if (acc == 0) {
+    if (digitalRead(sensDoor) == 1) {
+      lcd.setCursor(0, 0);
+      lcd.print("Pintu Brankas     ");
+      lcd.setCursor(0, 1);
+      lcd.print("Tutup Kembali !!");
+      digitalWrite(buzz, HIGH);
+      lcd.backlight();
+      delay(500);
+      digitalWrite(buzz, LOW);
+      lcd.noBacklight();
+      delay(500);
+    } else if (digitalRead(sensDoor) == 1) {
+      digitalWrite(buzz, LOW);
+    }
+  }
+}
+
+
+void countdownTimer(int seconds) {
+  if (seconds > 0) {
+    Serial.println(seconds);
+    delay(1000);
+    seconds -= 1;
+  }
+  if (digitalRead(sensDoor) == 0) {
+    lcd.setCursor(0, 0);
+    lcd.print("Tutup Pintu       ");
+    lcd.setCursor(0, 1);
+    lcd.print("Brankas.....!!    ");
+    digitalWrite(buzz, HIGH);
+    lcd.backlight();
+    delay(500);
+    digitalWrite(buzz, LOW);
+    lcd.noBacklight();
+    delay(500);
+  } else if (digitalRead(sensDoor) == 1) {
+    lcd.setCursor(0, 0);
+    lcd.print("Tutup Pintu       ");
+    lcd.setCursor(0, 1);
+    lcd.print("Brankas.....!!    ");
+    digitalWrite(buzz, HIGH);
+    lcd.backlight();
+    delay(500);
+    digitalWrite(buzz, LOW);
+    lcd.noBacklight();
+    delay(500);
+  }
+  Serial.println("Countdown selesai");
+}
+
 void setup() {
   Serial.begin(9600);
   lcd.init();  // initialize the lcd
@@ -37,7 +105,7 @@ void setup() {
   pinMode(buzz, OUTPUT);
   pinMode(sensDoor, INPUT_PULLUP);
 
-  digitalWrite(door, HIGH);
+  digitalWrite(door, LOW);
   digitalWrite(dryContact, HIGH);
 
   lcd.createChar(0, progressBar);
@@ -86,15 +154,15 @@ void loop()  // run over and over again
 {
   lcd.backlight();
   doorlockAccess();
+  alarmStatus();
   //alarm active function
   if (cntAlarm >= 3) {
-    for (int i = 0; i <= 50; i++) {
+    for (int i = 0; i <= 10; i++) {
       // action
       lcd.setCursor(0, 0);
       lcd.print("Brankas Dalam     ");
       lcd.setCursor(0, 1);
       lcd.print("Berbahaya...!!    ");
-      // alarm_brankas(750);
       digitalWrite(buzz, HIGH);
       lcd.backlight();
       delay(500);
@@ -109,8 +177,13 @@ void loop()  // run over and over again
 
   if (acc == 1 && digitalRead(sensDoor) == 1 && stDoor == 0) {
     stDoor = 1;
-  }
-  if (digitalRead(sensDoor) == 0 && stDoor == 1) {
+  } else if (acc == 1 && digitalRead(sensDoor) == 1 && stDoor == 1) {
+    currentMillisPublishDoorSensor = millis();
+    if (currentMillisPublishDoorSensor - startMillisPublishDoorSensor >= 1000) {
+      cntAlert++;
+      startMillisPublishDoorSensor = millis();
+    }
+  } else if (digitalRead(sensDoor) == 0 && stDoor == 1) {
     digitalWrite(dryContact, LOW);
     delay(3000);
     digitalWrite(dryContact, HIGH);
@@ -122,30 +195,39 @@ void loop()  // run over and over again
     delay(2000);
     digitalWrite(door, HIGH);
     stDoor = 0;
+    cntAlert = 0;
     acc = 0;
   }
 
-  // Monitor Debug
-  // Serial.print("status Door = ");
-  // Serial.println(stDoor);
-  // Serial.print("status sens = ");
-  // Serial.println(digitalRead(sensDoor));
-  // Serial.print("status acc = ");
-  // Serial.println(acc);
-  // Serial.print("/////////////////////////");
-  // Serial.println();
+  if (cntAlert >= 10) {
+    lcd.setCursor(0, 0);
+    lcd.print("Tutup Pintu       ");
+    lcd.setCursor(0, 1);
+    lcd.print("Brankas.....!!    ");
+    digitalWrite(buzz, HIGH);
+    lcd.backlight();
+    delay(500);
+    digitalWrite(buzz, LOW);
+    lcd.noBacklight();
+    delay(500);
+  }
 
-  delay(50);  //don't need to run this at full speed.
+  // Monitor Debug
+  Serial.print("status Door = ");
+  Serial.println(stDoor);
+  Serial.print("status sens = ");
+  Serial.println(digitalRead(sensDoor));
+  Serial.print("status acc = ");
+  Serial.println(acc);
+  Serial.print("status alert = ");
+  Serial.println(cntAlert);
+  Serial.print("/////////////////////////");
+  Serial.println();
+
+  delay(200);  //don't need to run this at full speed.
 }
 
-// void alarm_brankas(int speed) {
-//   digitalWrite(buzz, LOW);
-//   static unsigned long time = millis();
-//   if (millis() - time >= speed) {
-//     time = millis();
-//     digitalWrite(buzz, HIGH);
-//   }
-// }
+// void
 // Main Program
 int doorlockAccess() {
   uint8_t p = finger.getImage();
@@ -159,6 +241,9 @@ int doorlockAccess() {
   // Akses terdaftar dan gagal baca
   p = finger.image2Tz();
   if (p != FINGERPRINT_OK) {
+    digitalWrite(buzz, HIGH);
+    delay(300);
+    digitalWrite(buzz, LOW);
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print(" Silahkan Scan  ");
@@ -171,6 +256,9 @@ int doorlockAccess() {
   // Akses tidak terdaftar
   p = finger.fingerFastSearch();
   if (p != FINGERPRINT_OK) {
+    digitalWrite(buzz, HIGH);
+    delay(300);
+    digitalWrite(buzz, LOW);
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("   Akses Anda   ");
@@ -182,6 +270,9 @@ int doorlockAccess() {
     return -1;
   }
   // Akses terdaftar dan success
+  digitalWrite(buzz, HIGH);
+  delay(300);
+  digitalWrite(buzz, LOW);
   lcd.clear();
   Serial.println("Pintu Terbuka");
   lcd.setCursor(0, 0);
